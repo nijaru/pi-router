@@ -5,9 +5,13 @@ pi-router is a small Pi extension whose only product job is selecting the model 
 ## Constraints
 
 - Target current Pi extension APIs (0.86.x+) and keep Pi-specific integration thin.
-- Keep routing semantics capability/cost based; do not hard-code DeepSeek/Astra into Jev questions.
-- Ordinary code owns route policy. Jev supplies bounded semantic judgments only.
-- Bias against false downgrades. Router failure must never block a Pi turn.
+- Routing is an ordered, user-configurable list of capability profiles. Do not reintroduce a fixed fast/capable/expert enum or hard-code DeepSeek/Astra into the router.
+- Ordinary code owns route policy. Jev supplies bounded per-profile sufficiency probabilities only.
+- Filter profiles to models actually available in Pi before asking Jev; within a profile, use the first available target in configured order.
+- Honor `.pi/pi-router.json` only when Pi trusts the project; it can redirect the Jev endpoint or select a credential env var.
+- Distinguish router-originated Pi model/thinking events from user changes without relying on timing: Pi does not await thinking-level event dispatch.
+- Bias against false downgrades: upgrades are immediate, downgrades require a stronger threshold. Router failure must never block a Pi turn.
+- Do not disclose profile order, pricing, or the current model in Jev requests.
 - Manual model/thinking selection is authoritative until the user returns to `/router auto` or `/router observe`.
 - Do not expand v1 into skill routing, tool policing, retrieval, worker orchestration, generic Jev middleware, or budget management without evidence from real routing use.
 - Do not log API keys or raw prompt/transcript content in telemetry.
