@@ -182,6 +182,7 @@ export default function piRouter(pi: ExtensionAPI) {
       .pop() as { data?: Partial<PersistedState> } | undefined;
     if (saved?.data?.mode === "observe" || saved?.data?.mode === "auto" || saved?.data?.mode === "off") mode = saved.data.mode;
     manualOverride = saved?.data?.manualOverride === true;
+    if (process.env.PI_ROUTER_OFF === "1") mode = "off";
     updateStatus(ctx);
   });
 
@@ -249,6 +250,12 @@ export default function piRouter(pi: ExtensionAPI) {
       const command = args.trim().toLowerCase() || "status";
       if (command === "status") {
         notify(ctx, `pi-router ${mode}${manualOverride ? " (manual override)" : ""}; ${formatDecision(lastDecision)}`);
+        return;
+      }
+      if (process.env.PI_ROUTER_OFF === "1") {
+        mode = "off";
+        updateStatus(ctx);
+        notify(ctx, "pi-router is forced off by PI_ROUTER_OFF=1", "warning");
         return;
       }
       if (command !== "observe" && command !== "auto" && command !== "off") {
