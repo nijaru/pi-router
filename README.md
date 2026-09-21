@@ -20,7 +20,7 @@ The default profiles are:
 
 ## Requirements
 
-- Pi 0.86.x or newer
+- Pi 0.86.0 or newer (tested against 0.86.1 and 0.87.0)
 - Node.js 22.19+
 - OpenRouter configured in Pi, or `OPENROUTER_API_KEY`, with access to `typesafe/jev-1.13`
 

@@ -7,11 +7,17 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # peerDependencies allow >=0.86.0; verify the baseline and the current release.
+        pi: ["0.86.1", "0.87.0"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install --ignore-scripts
+      - run: npm install --ignore-scripts --no-save @earendil-works/pi-coding-agent@${{ matrix.pi }}
       - run: npm test
       - run: npm run check

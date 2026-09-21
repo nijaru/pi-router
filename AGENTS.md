@@ -4,7 +4,7 @@ pi-router is a small Pi extension whose only product job is selecting the model 
 
 ## Constraints
 
-- Target current Pi extension APIs (0.86.x+) and keep Pi-specific integration thin.
+- Target current Pi extension APIs (0.86+; CI verifies 0.86.1 and 0.87.0) and keep Pi-specific integration thin.
 - Routing is an ordered, user-configurable list of capability profiles. Do not reintroduce a fixed fast/capable/expert enum or hard-code DeepSeek/Astra into the router.
 - Ordinary code owns route policy. Jev supplies bounded per-profile sufficiency probabilities only.
 - Filter profiles to models actually available in Pi before asking Jev; within a profile, use the first available target in configured order.
