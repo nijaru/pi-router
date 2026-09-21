@@ -1,0 +1,22 @@
+{
+  "name": "pi-router",
+  "version": "0.0.1",
+  "description": "Route Pi turns to the right model and thinking level with Jev.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["pi-package", "pi", "model-router", "jev", "llm-routing"],
+  "engines": { "node": ">=22.19.0" },
+  "pi": { "extensions": ["./src/index.ts"] },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.86.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.86.1",
+    "@types/node": "22.19.19",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "check": "tsc --noEmit"
+  }
+}
