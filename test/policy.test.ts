@@ -1,79 +1,57 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_CONFIG } from "../src/config.ts";
-import { chooseRoute } from "../src/policy.ts";
-import type { RouteAnalysis } from "../src/types.ts";
+import { chooseProfile } from "../src/policy.ts";
+import type { ProfileAssessment, RouterThresholds } from "../src/types.ts";
 
-function analysis(overrides: Partial<RouteAnalysis>): RouteAnalysis {
-  return {
-    lowEffortSufficient: 0.5,
-    expertMateriallyBetter: 0.2,
-    reasoningDepth: 1.2,
-    latencyMs: 100,
-    ...overrides,
-  };
+const thresholds: RouterThresholds = { sufficientProbability: 0.8, downgradeProbability: 0.95 };
+
+function profiles(probabilities: readonly number[]): ProfileAssessment[] {
+  return probabilities.map((probability, index) => ({ id: `p${index}`, probability }));
 }
 
-test("routes obvious work to fast", () => {
-  const result = chooseRoute(
-    analysis({ lowEffortSufficient: 0.96, expertMateriallyBetter: 0.02, reasoningDepth: 0.2 }),
-    DEFAULT_CONFIG.thresholds,
-  );
-  assert.equal(result.selected, "fast");
-});
-
-test("routes bounded reasoning to capable", () => {
-  const result = chooseRoute(
-    analysis({ lowEffortSufficient: 0.45, expertMateriallyBetter: 0.18, reasoningDepth: 1.4 }),
-    DEFAULT_CONFIG.thresholds,
-  );
-  assert.equal(result.selected, "capable");
-});
-
-test("routes material expert benefit to expert", () => {
-  const result = chooseRoute(
-    analysis({ lowEffortSufficient: 0.1, expertMateriallyBetter: 0.82, reasoningDepth: 2.0 }),
-    DEFAULT_CONFIG.thresholds,
-  );
-  assert.equal(result.selected, "expert");
-});
-
-test("routes architectural depth to expert even with mixed expert probability", () => {
-  const result = chooseRoute(
-    analysis({ lowEffortSufficient: 0.2, expertMateriallyBetter: 0.35, reasoningDepth: 2.8 }),
-    DEFAULT_CONFIG.thresholds,
-  );
-  assert.equal(result.selected, "expert");
-});
-
-test("holds expert on marginal downgrade", () => {
-  const result = chooseRoute(
-    analysis({ lowEffortSufficient: 0.65, expertMateriallyBetter: 0.25, reasoningDepth: 1.1 }),
-    DEFAULT_CONFIG.thresholds,
-    "expert",
-  );
-  assert.equal(result.desired, "capable");
-  assert.equal(result.selected, "expert");
-  assert.equal(result.held, true);
-});
-
-test("allows expert downgrade when evidence is strong", () => {
-  const result = chooseRoute(
-    analysis({ lowEffortSufficient: 0.96, expertMateriallyBetter: 0.03, reasoningDepth: 0.2 }),
-    DEFAULT_CONFIG.thresholds,
-    "expert",
-  );
-  assert.equal(result.selected, "fast");
+test("selects the first profile when it is sufficient", () => {
+  const result = chooseProfile(profiles([0.9, 0.4, 0.2]), thresholds);
+  assert.equal(result.selected, "p0");
+  assert.equal(result.desired, "p0");
   assert.equal(result.held, false);
 });
 
-test("allows expert to step down to capable when expert need is clearly low", () => {
-  const result = chooseRoute(
-    analysis({ lowEffortSufficient: 0.4, expertMateriallyBetter: 0.08, reasoningDepth: 1.4 }),
-    DEFAULT_CONFIG.thresholds,
-    "expert",
-  );
-  assert.equal(result.desired, "capable");
-  assert.equal(result.selected, "capable");
+test("selects a middle profile when cheaper ones are insufficient", () => {
+  const result = chooseProfile(profiles([0.5, 0.9, 0.85]), thresholds);
+  assert.equal(result.selected, "p1");
+  assert.equal(result.desired, "p1");
+});
+
+test("uses the last profile as the safest fallback when none qualify", () => {
+  const result = chooseProfile(profiles([0.3, 0.5, 0.4]), thresholds);
+  assert.equal(result.selected, "p2");
+  assert.equal(result.desired, "p2");
+  assert.match(result.reason, /safest fallback/);
+});
+
+test("upgrades immediately", () => {
+  const result = chooseProfile(profiles([0.4, 0.9, 0.95]), thresholds, "p0");
+  assert.equal(result.selected, "p1");
+  assert.equal(result.held, false);
+});
+
+test("holds a marginal downgrade", () => {
+  const result = chooseProfile(profiles([0.9, 0.7, 0.6]), thresholds, "p2");
+  assert.equal(result.desired, "p0");
+  assert.equal(result.selected, "p2");
+  assert.equal(result.held, true);
+  assert.match(result.reason, /marginal downgrade/);
+});
+
+test("allows a confident downgrade", () => {
+  const result = chooseProfile(profiles([0.99, 0.7, 0.6]), thresholds, "p2");
+  assert.equal(result.desired, "p0");
+  assert.equal(result.selected, "p0");
+  assert.equal(result.held, false);
+});
+
+test("does not treat an unknown current profile as a downgrade", () => {
+  const result = chooseProfile(profiles([0.9, 0.7]), thresholds, "unknown");
+  assert.equal(result.selected, "p0");
   assert.equal(result.held, false);
 });

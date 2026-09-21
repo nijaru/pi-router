@@ -22,14 +22,17 @@ export interface BranchEntryLike {
   };
 }
 
-export function recentConversationContext(
-  branch: readonly BranchEntryLike[],
-  currentPrompt: string,
-  maxChars: number,
-): string | undefined {
-  const messages: string[] = [];
-  let skippedCurrent = false;
+/**
+ * Build a compact excerpt of the most recent user/assistant messages.
+ *
+ * Pi emits `before_agent_start` before the current user message is persisted,
+ * so the branch never contains the prompt being classified and no
+ * deduplication against it is needed.
+ */
+export function recentConversationContext(branch: readonly BranchEntryLike[], maxChars: number): string | undefined {
+  if (maxChars <= 0) return undefined;
 
+  const messages: string[] = [];
   for (let i = branch.length - 1; i >= 0 && messages.length < 4; i -= 1) {
     const entry = branch[i];
     if (entry.type !== "message" || !entry.message) continue;
@@ -37,11 +40,6 @@ export function recentConversationContext(
     if (role !== "user" && role !== "assistant") continue;
     const text = contentText(entry.message.content).trim();
     if (!text) continue;
-
-    if (!skippedCurrent && role === "user" && normalize(text) === normalize(currentPrompt)) {
-      skippedCurrent = true;
-      continue;
-    }
     messages.push(`${role}: ${text}`);
   }
 
@@ -49,8 +47,4 @@ export function recentConversationContext(
   const joined = messages.reverse().join("\n\n");
   if (joined.length <= maxChars) return joined;
   return joined.slice(-maxChars);
-}
-
-function normalize(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
 }

@@ -1,4 +1,4 @@
-import type { JevConfig, RouteAnalysis } from "./types.ts";
+import type { JevConfig, ProfileAssessment, RouteAnalysis } from "./types.ts";
 
 export class JevError extends Error {
   readonly status?: number;
@@ -10,23 +10,59 @@ export class JevError extends Error {
   }
 }
 
+/** One capability profile as presented to Jev for a sufficiency judgment. */
+export interface ProfileQuestion {
+  id: string;
+  description: string;
+}
+
 export interface ClassifyState {
   prompt: string;
   history?: string;
   project?: string;
-  currentModel?: string;
-  currentThinking?: string;
+  /** Available profiles in configured preference order. */
+  profiles: ProfileQuestion[];
 }
 
 function clip(text: string | undefined, maxChars: number): string | undefined {
-  if (!text) return undefined;
+  if (!text || maxChars <= 0) return undefined;
   if (text.length <= maxChars) return text;
   const head = Math.floor(maxChars * 0.7);
   const tail = maxChars - head;
   return `${text.slice(0, head)}\n…[truncated]…\n${text.slice(-tail)}`;
 }
 
+function sufficiencyQuestion(description: string): Record<string, unknown> {
+  return {
+    type: "noul",
+    instructions:
+      "Decide whether this capability profile is sufficient to complete the request reliably and without material quality loss.\n\n" +
+      `Profile scope: ${description}\n\n` +
+      "Read recent_context when the request is a short follow-up. Answer true only when work at this scope should " +
+      "produce a correct, high-quality result; answer false when the request needs more capability, sustained " +
+      "reasoning, or judgment than the profile covers.",
+    criteria: {
+      true: "The profile scope covers the work needed for a reliable, high-quality result.",
+      false: "The work exceeds the profile scope or needs more capability or reasoning than it provides.",
+    },
+  };
+}
+
+/**
+ * Build a single OpenRouter Decisions request with one independent sufficiency
+ * question per available profile.
+ *
+ * Questions are keyed by profile id and sorted by id so transport order does
+ * not reveal the configured preference order. Neither profile order, pricing,
+ * nor the currently selected model is disclosed.
+ */
 export function buildJevRequest(state: ClassifyState, config: JevConfig): Record<string, unknown> {
+  const questions: Record<string, unknown> = {};
+  const ordered = [...state.profiles].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const profile of ordered) {
+    questions[profile.id] = sufficiencyQuestion(profile.description);
+  }
+
   const body: Record<string, unknown> = {
     model: config.model,
     state: {
@@ -34,41 +70,9 @@ export function buildJevRequest(state: ClassifyState, config: JevConfig): Record
       recent_context: clip(state.history, config.maxHistoryChars) ?? null,
       environment: {
         project: state.project ?? null,
-        current_model: state.currentModel ?? null,
-        current_thinking: state.currentThinking ?? null,
       },
     },
-    questions: {
-      low_effort_sufficient: {
-        type: "noul",
-        instructions:
-          "Can a strong, efficient coding/reasoning model at LOW reasoning effort handle this request without material quality loss? Read recent_context for short follow-ups. Answer true for direct edits, routine commands, simple explanations, or obvious continuation work. Answer false when sustained reasoning is needed even if an efficient model could still do the job at higher effort.",
-        criteria: {
-          true: "Low-effort inference is enough to complete the work reliably.",
-          false: "The request needs sustained reasoning or careful tradeoff analysis.",
-        },
-      },
-      expert_materially_better: {
-        type: "noul",
-        instructions:
-          "Would a top-tier frontier model be materially more likely than a strong efficient model to produce a correct, high-quality outcome for this request? Read recent_context for follow-ups. Answer true for architectural or system-level design, subtle cross-cutting debugging, novel/ambiguous high-stakes decisions, or work where missing a hidden constraint is costly. Answer false for bounded implementation, routine debugging, lookup, editing, or familiar patterns.",
-        criteria: {
-          true: "Frontier capability is likely to materially improve correctness or judgment.",
-          false: "A strong efficient model should be sufficient without meaningful quality loss.",
-        },
-      },
-      reasoning_depth: {
-        type: "score",
-        instructions:
-          "How much reasoning depth does this request require to do well? Judge the requested work, not the sophistication of the topic name. Use recent_context when the request is a continuation.",
-        criteria: [
-          "Direct/local: mechanical or one obvious step; little or no inference needed",
-          "Bounded: several dependent steps using familiar patterns; modest debugging or reasoning",
-          "Complex: interacting constraints, multiple files/subsystems, non-obvious debugging or tradeoffs",
-          "Architectural: cross-cutting design, novel reasoning, consequential ambiguity, or long-horizon system decisions",
-        ],
-      },
-    },
+    questions,
   };
 
   if (config.zeroDataRetention) {
@@ -81,24 +85,30 @@ function finite(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-export function parseJevResponse(payload: unknown, latencyMs: number): RouteAnalysis {
+/** A Jev `noul` answer is a probability and must stay within [0, 1]. */
+function probability(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : undefined;
+}
+
+export function parseJevResponse(
+  payload: unknown,
+  profileIds: readonly string[],
+  latencyMs: number,
+): RouteAnalysis {
   if (typeof payload !== "object" || payload === null) throw new JevError("Jev returned a non-object response");
   const root = payload as Record<string, unknown>;
   if (typeof root.answers !== "object" || root.answers === null) throw new JevError("Jev response is missing answers");
-  const answers = root.answers as Record<string, Record<string, unknown>>;
+  const answers = root.answers as Record<string, Record<string, unknown> | undefined>;
 
-  const low = finite(answers.low_effort_sufficient?.noul);
-  const expert = finite(answers.expert_materially_better?.noul);
-  const depth = finite(answers.reasoning_depth?.score);
-  if (low === undefined || expert === undefined || depth === undefined) {
-    throw new JevError("Jev response is missing required decision values");
-  }
+  const profiles: ProfileAssessment[] = profileIds.map((id) => {
+    const value = probability(answers[id]?.noul);
+    if (value === undefined) throw new JevError(`Jev response is missing a valid answer for profile "${id}"`);
+    return { id, probability: value };
+  });
 
   const usage = typeof root.usage === "object" && root.usage !== null ? (root.usage as Record<string, unknown>) : undefined;
   return {
-    lowEffortSufficient: low,
-    expertMateriallyBetter: expert,
-    reasoningDepth: depth,
+    profiles,
     latencyMs,
     model: typeof root.model === "string" ? root.model : undefined,
     usage: usage
@@ -129,6 +139,7 @@ export async function classifyWithJev(
   const timeout = AbortSignal.timeout(config.timeoutMs);
   const signal = externalSignal ? AbortSignal.any([timeout, externalSignal]) : timeout;
   const body = buildJevRequest(state, config);
+  const profileIds = state.profiles.map((profile) => profile.id);
   const started = Date.now();
 
   let lastError: unknown;
@@ -149,7 +160,7 @@ export async function classifyWithJev(
         if (response.status !== 429 && response.status !== 529) throw error;
         lastError = error;
       } else {
-        return parseJevResponse(await response.json(), Date.now() - started);
+        return parseJevResponse(await response.json(), profileIds, Date.now() - started);
       }
     } catch (error) {
       if (signal.aborted) throw new JevError("Jev request timed out or was aborted");

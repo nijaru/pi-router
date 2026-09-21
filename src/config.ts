@@ -1,6 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { ModelTarget, RouteName, RouterConfig, RouterMode, ThinkingLevel } from "./types.ts";
-import { ROUTES, THINKING_LEVELS } from "./types.ts";
+import type {
+  JevConfig,
+  ModelTarget,
+  RouterConfig,
+  RouterMode,
+  RouterThresholds,
+  RoutingProfile,
+  ThinkingLevel,
+} from "./types.ts";
+import { THINKING_LEVELS } from "./types.ts";
 
 export const DEFAULT_CONFIG: RouterConfig = {
   mode: "observe",
@@ -14,36 +22,52 @@ export const DEFAULT_CONFIG: RouterConfig = {
     zeroDataRetention: true,
   },
   thresholds: {
-    expertProbability: 0.5,
-    expertReasoningDepth: 2.25,
-    fastProbability: 0.85,
-    fastMaxExpertProbability: 0.15,
-    fastMaxReasoningDepth: 0.8,
-    expertDowngradeMaxProbability: 0.15,
-    expertDowngradeMaxReasoningDepth: 1.75,
+    sufficientProbability: 0.8,
+    downgradeProbability: 0.95,
   },
-  routes: {
-    fast: [
-      { provider: "deepseek", model: "deepseek-flash", thinkingLevel: "low" },
-      { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", thinkingLevel: "low" },
-    ],
-    capable: [
-      { provider: "deepseek", model: "deepseek-flash", thinkingLevel: "high" },
-      { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", thinkingLevel: "high" },
-    ],
-    expert: [
-      { provider: "openai-codex", model: "gpt-6-astra", thinkingLevel: "high" },
-      { provider: "openai", model: "gpt-6-astra", thinkingLevel: "high" },
-      { provider: "openrouter", model: "openai/gpt-6-astra", thinkingLevel: "high" },
-    ],
-  },
+  profiles: [
+    {
+      id: "routine",
+      description:
+        "Direct questions, routine edits, small or local implementation, and straightforward debugging: " +
+        "bounded work with one clear path and little sustained reasoning.",
+      targets: [
+        { provider: "deepseek", model: "deepseek-flash", thinkingLevel: "low" },
+        { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", thinkingLevel: "low" },
+      ],
+    },
+    {
+      id: "substantial",
+      description:
+        "Substantial but bounded coding, multi-step implementation, and ordinary refactors or debugging that need " +
+        "sustained reasoning over familiar patterns.",
+      targets: [
+        { provider: "deepseek", model: "deepseek-flash", thinkingLevel: "high" },
+        { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", thinkingLevel: "high" },
+      ],
+    },
+    {
+      id: "strategic",
+      description:
+        "Architecture and system design, subtle cross-cutting debugging, novel or ambiguous problems, and decisions " +
+        "with consequential tradeoffs.",
+      targets: [
+        { provider: "openai-codex", model: "gpt-6-astra", thinkingLevel: "high" },
+        { provider: "openai", model: "gpt-6-astra", thinkingLevel: "high" },
+        { provider: "openrouter", model: "openai/gpt-6-astra", thinkingLevel: "high" },
+      ],
+    },
+  ],
 };
 
-type PartialConfig = Partial<Omit<RouterConfig, "jev" | "thresholds" | "routes">> & {
-  jev?: Partial<RouterConfig["jev"]>;
-  thresholds?: Partial<RouterConfig["thresholds"]>;
-  routes?: Partial<Record<RouteName, ModelTarget[]>>;
+type PartialConfig = {
+  mode?: RouterMode;
+  jev?: Partial<JevConfig>;
+  thresholds?: Partial<RouterThresholds>;
+  profiles?: RoutingProfile[];
 };
+
+const PROFILE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -72,6 +96,37 @@ function parseTarget(value: unknown): ModelTarget | undefined {
   return { provider, model, thinkingLevel };
 }
 
+function parseProfiles(value: unknown, source: string): RoutingProfile[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error(`${source}: profiles must be a non-empty array`);
+  const seen = new Set<string>();
+  const profiles: RoutingProfile[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const raw = value[index];
+    if (!isRecord(raw)) throw new Error(`${source}: profiles[${index}] must be an object`);
+
+    const id = typeof raw.id === "string" ? raw.id.trim() : "";
+    if (!PROFILE_ID_PATTERN.test(id)) {
+      throw new Error(`${source}: profiles[${index}].id must be a stable identifier (letters, digits, . _ -)`);
+    }
+    if (seen.has(id)) throw new Error(`${source}: duplicate profile id "${id}"`);
+    seen.add(id);
+
+    const description = typeof raw.description === "string" ? raw.description.trim() : "";
+    if (!description) throw new Error(`${source}: profiles[${index}].description must be a non-empty string`);
+
+    if (!Array.isArray(raw.targets) || raw.targets.length === 0) {
+      throw new Error(`${source}: profiles[${index}].targets must be a non-empty array`);
+    }
+    const targets = raw.targets.map(parseTarget);
+    if (targets.some((target) => target === undefined)) {
+      throw new Error(`${source}: profiles[${index}].targets contains an invalid target`);
+    }
+
+    profiles.push({ id, description, targets: targets as ModelTarget[] });
+  }
+  return profiles;
+}
+
 function normalizePartial(value: unknown, source: string): PartialConfig {
   if (!isRecord(value)) throw new Error(`${source} must contain a JSON object`);
 
@@ -97,10 +152,10 @@ function normalizePartial(value: unknown, source: string): PartialConfig {
     for (const key of integers) {
       const raw = value.jev[key];
       if (raw !== undefined) {
-        if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
-          throw new Error(`${source}: jev.${key} must be a positive number`);
+        if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+          throw new Error(`${source}: jev.${key} must be a positive integer`);
         }
-        result.jev[key] = Math.floor(raw);
+        result.jev[key] = raw;
       }
     }
     if (value.jev.zeroDataRetention !== undefined) {
@@ -114,33 +169,22 @@ function normalizePartial(value: unknown, source: string): PartialConfig {
   if (value.thresholds !== undefined) {
     if (!isRecord(value.thresholds)) throw new Error(`${source}: thresholds must be an object`);
     result.thresholds = {};
-    for (const key of Object.keys(DEFAULT_CONFIG.thresholds) as (keyof RouterConfig["thresholds"])[]) {
+    for (const key of Object.keys(value.thresholds)) {
+      if (!Object.hasOwn(DEFAULT_CONFIG.thresholds, key)) throw new Error(`${source}: unknown threshold "${key}"`);
+    }
+    for (const key of Object.keys(DEFAULT_CONFIG.thresholds) as (keyof RouterThresholds)[]) {
       const raw = value.thresholds[key];
       if (raw === undefined) continue;
       if (typeof raw !== "number" || !Number.isFinite(raw)) {
         throw new Error(`${source}: thresholds.${key} must be a number`);
       }
-      const isDepth = key.includes("ReasoningDepth");
-      if (isDepth ? raw < 0 || raw > 3 : raw < 0 || raw > 1) {
-        throw new Error(`${source}: thresholds.${key} is out of range`);
-      }
+      if (raw < 0 || raw > 1) throw new Error(`${source}: thresholds.${key} must be between 0 and 1`);
       result.thresholds[key] = raw;
     }
   }
 
-  if (value.routes !== undefined) {
-    if (!isRecord(value.routes)) throw new Error(`${source}: routes must be an object`);
-    result.routes = {};
-    for (const route of ROUTES) {
-      const raw = value.routes[route];
-      if (raw === undefined) continue;
-      if (!Array.isArray(raw) || raw.length === 0) throw new Error(`${source}: routes.${route} must be a non-empty array`);
-      const parsed = raw.map(parseTarget);
-      if (parsed.some((target) => target === undefined)) {
-        throw new Error(`${source}: routes.${route} contains an invalid target`);
-      }
-      result.routes[route] = parsed as ModelTarget[];
-    }
+  if (value.profiles !== undefined) {
+    result.profiles = parseProfiles(value.profiles, source);
   }
 
   return result;
@@ -151,12 +195,18 @@ function merge(base: RouterConfig, patch: PartialConfig): RouterConfig {
     mode: patch.mode ?? base.mode,
     jev: { ...base.jev, ...patch.jev },
     thresholds: { ...base.thresholds, ...patch.thresholds },
-    routes: {
-      fast: patch.routes?.fast ?? base.routes.fast,
-      capable: patch.routes?.capable ?? base.routes.capable,
-      expert: patch.routes?.expert ?? base.routes.expert,
-    },
+    profiles: patch.profiles ?? base.profiles,
   };
+}
+
+function assertThresholdOrder(config: RouterConfig): void {
+  const { sufficientProbability, downgradeProbability } = config.thresholds;
+  if (downgradeProbability < sufficientProbability) {
+    throw new Error(
+      `pi-router config: thresholds.downgradeProbability (${downgradeProbability}) must be >= ` +
+        `thresholds.sufficientProbability (${sufficientProbability})`,
+    );
+  }
 }
 
 export interface LoadConfigOptions {
@@ -177,5 +227,7 @@ export function loadConfig(options: LoadConfigOptions = {}): RouterConfig {
   const env = options.env ?? process.env;
   if (env.PI_ROUTER_MODE) config.mode = parseMode(env.PI_ROUTER_MODE, config.mode);
   if (env.PI_ROUTER_OFF === "1") config.mode = "off";
+
+  assertThresholdOrder(config);
   return config;
 }

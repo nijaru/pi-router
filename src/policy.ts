@@ -1,41 +1,50 @@
-import type { RouteAnalysis, RouteDecision, RouteName, RouterThresholds } from "./types.ts";
+import type { ProfileAssessment, RouteDecision, RouterThresholds } from "./types.ts";
 
-const RANK: Record<RouteName, number> = { fast: 0, capable: 1, expert: 2 };
+/**
+ * Select a routing profile from Jev's per-profile sufficiency estimates.
+ *
+ * `assessments` arrive in configured preference order (most preferred/cheapest
+ * first, safest fallback last). The first profile whose probability clears
+ * `sufficientProbability` is desired; when none clears it, the last (safest)
+ * profile is used instead.
+ *
+ * Upgrades take effect immediately. A move to a cheaper profile than the
+ * current one is a downgrade and requires the stronger `downgradeProbability`
+ * to avoid model/cache flapping on marginal evidence.
+ */
+export function chooseProfile(
+  assessments: readonly ProfileAssessment[],
+  thresholds: RouterThresholds,
+  currentId?: string,
+): RouteDecision {
+  if (assessments.length === 0) throw new Error("no profiles to choose from");
 
-export function chooseRoute(analysis: RouteAnalysis, thresholds: RouterThresholds, current?: RouteName): RouteDecision {
-  let desired: RouteName;
-  if (
-    analysis.expertMateriallyBetter >= thresholds.expertProbability ||
-    analysis.reasoningDepth >= thresholds.expertReasoningDepth
-  ) {
-    desired = "expert";
-  } else if (
-    analysis.lowEffortSufficient >= thresholds.fastProbability &&
-    analysis.expertMateriallyBetter <= thresholds.fastMaxExpertProbability &&
-    analysis.reasoningDepth <= thresholds.fastMaxReasoningDepth
-  ) {
-    desired = "fast";
-  } else {
-    desired = "capable";
-  }
+  const currentIndex = currentId === undefined ? -1 : assessments.findIndex((entry) => entry.id === currentId);
 
-  let selected = desired;
+  let desiredIndex = assessments.findIndex((entry) => entry.probability >= thresholds.sufficientProbability);
+  const fallback = desiredIndex === -1;
+  if (fallback) desiredIndex = assessments.length - 1;
+
+  let selectedIndex = desiredIndex;
   let held = false;
-  let reason = `low=${analysis.lowEffortSufficient.toFixed(2)} expert=${analysis.expertMateriallyBetter.toFixed(2)} depth=${analysis.reasoningDepth.toFixed(2)}`;
-
-  // The only expensive transition in the default setup is leaving the expert model.
-  // Require strong evidence before downgrading; upgrades and fast<->capable thinking
-  // changes are allowed immediately.
-  if (current === "expert" && RANK[desired] < RANK.expert) {
-    const safeToDowngrade =
-      analysis.expertMateriallyBetter <= thresholds.expertDowngradeMaxProbability &&
-      analysis.reasoningDepth <= thresholds.expertDowngradeMaxReasoningDepth;
-    if (!safeToDowngrade) {
-      selected = "expert";
+  if (currentIndex !== -1 && desiredIndex < currentIndex) {
+    if (assessments[desiredIndex].probability >= thresholds.downgradeProbability) {
+      selectedIndex = desiredIndex;
+    } else {
+      selectedIndex = currentIndex;
       held = true;
-      reason += " · held expert to avoid a marginal downgrade";
     }
   }
 
-  return { desired, selected, held, reason };
+  const summary = assessments.map((entry) => `${entry.id}=${entry.probability.toFixed(2)}`).join(" ");
+  const notes: string[] = [];
+  if (fallback) notes.push("no profile cleared the sufficiency threshold; using the safest fallback");
+  if (held) notes.push("held to avoid a marginal downgrade");
+
+  return {
+    desired: assessments[desiredIndex].id,
+    selected: assessments[selectedIndex].id,
+    held,
+    reason: notes.length > 0 ? `${summary} · ${notes.join("; ")}` : summary,
+  };
 }
