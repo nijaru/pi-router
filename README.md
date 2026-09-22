@@ -6,7 +6,9 @@ It is intentionally narrow: Jev judges whether each configured capability profil
 
 ## Current status
 
-Early v0. The default mode is **observe** so decisions can be calibrated on real sessions before automatic switching is trusted.
+Experimental and paused. Routing quality has not been validated against a fixed-model baseline; the implementation and tests are retained, but further development and calibration are on hold.
+
+The default mode is **observe**, which records recommendations without switching models. Observe mode still sends request context to Jev and adds classification latency. Leave the extension uninstalled or use `/router off` when not evaluating it.
 
 Routing is driven by an ordered list of **profiles**. Each profile is one capability/cost choice with a routing description and one or more equivalent model targets. Order means: most preferred / cheapest when sufficient first, safest fallback last. The list is replaceable, so Muse, GLM, Qwen, or future models can be added without changing the router.
 
