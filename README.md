@@ -6,7 +6,7 @@ It is intentionally narrow: Jev judges whether each configured capability profil
 
 ## Current status
 
-Experimental; development resumed 2026-09-23 after a pause. The profile-based router is implemented and tested, but routing quality has not yet been validated against a fixed-model baseline — calibration is the next step, and automatic switching should not be trusted until it passes.
+Experimental and shelved (2026-09-23). Analysis concluded that prompt-only per-turn classification carries asymmetric false-downgrade risk relative to its benefit: the running agent judges task difficulty better once it has investigated the repository, and a wrong cheap-tier assignment costs rework while routing saves pennies per turn. The implementation and tests are retained for study; local acceptance and calibration were not run, and automatic switching is not recommended.
 
 The default mode is **observe**, which records recommendations without switching models. Observe mode still sends request context to Jev and adds classification latency. Leave the extension uninstalled or use `/router off` when not evaluating it.
 
