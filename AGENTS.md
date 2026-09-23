@@ -1,28 +1,31 @@
-# pi-router agent guidance
+# pi-router
 
-pi-router is a small Pi extension whose only product job is selecting the model and thinking level for each user turn. Jev is the current classifier backend, not the product boundary.
+Jev-backed per-turn model/thinking router for Pi. Narrow scope: choose the configured
+model + thinking-level profile sufficient for the current turn, and fail open
+whenever anything is uncertain.
 
-## Constraints
+## Commands
 
-- Target current Pi extension APIs (0.86+; CI verifies 0.86.1 and 0.87.0) and keep Pi-specific integration thin.
-- Routing is an ordered, user-configurable list of capability profiles. Do not reintroduce a fixed fast/capable/expert enum or hard-code DeepSeek/Astra into the router.
-- Ordinary code owns route policy. Jev supplies bounded per-profile sufficiency probabilities only.
-- Filter profiles to models actually available in Pi before asking Jev; within a profile, use the first available target in configured order.
-- Honor `.pi/pi-router.json` only when Pi trusts the project; it can redirect the Jev endpoint or select a credential env var.
-- Distinguish router-originated Pi model/thinking events from user changes without relying on timing: Pi does not await thinking-level event dispatch.
-- Bias against false downgrades: upgrades are immediate, downgrades require a stronger threshold. Router failure must never block a Pi turn.
-- Do not disclose profile order, pricing, or the current model in Jev requests.
-- Manual model/thinking selection is authoritative until the user returns to `/router auto` or `/router observe`.
-- Do not expand v1 into skill routing, tool policing, retrieval, worker orchestration, generic Jev middleware, or budget management without evidence from real routing use.
-- Do not log API keys or raw prompt/transcript content in telemetry.
+- `npm test` — `node --experimental-strip-types --test test/*.test.ts`
+- `npm run check` — `tsc --noEmit`
+- CI (`.github/workflows/check.yml`) runs both against the oldest supported and the
+  current Pi releases; update the matrix when a new Pi minor matters.
 
-## Verification
+## Invariants
 
-Run:
+- Fail open: Jev, config, and model failures never block or alter a Pi turn.
+- Observe is the default mode; automatic switching requires `/router auto`.
+- Jev sees only the request and a compact recent-context excerpt: never the current
+  model, profile order, pricing, or raw transcript. No raw prompt text in telemetry.
+- Manual model/thinking changes suspend routing; router-originated changes must not
+  register as manual overrides.
+- One Decisions request per turn, one independent sufficiency question per available
+  profile; profiles are filtered to available Pi models before classification.
+- Selection is deterministic: first profile at/above `sufficientProbability`, else
+  the safest fallback; downgrades need `downgradeProbability`.
 
-```sh
-npm test
-npm run check
-```
+## Discovery
 
-Real acceptance also requires installing the checkout into Pi and exercising observe mode before enabling automatic routing broadly.
+- Behavior and configuration: `README.md`.
+- Design rationale, decisions, and calibration records live in the maintainer's
+  private knowledge base under the `pi-router` project, not in this repository.
