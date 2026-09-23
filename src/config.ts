@@ -32,8 +32,9 @@ export const DEFAULT_CONFIG: RouterConfig = {
         "Direct questions, routine edits, small or local implementation, and straightforward debugging: " +
         "bounded work with one clear path and little sustained reasoning.",
       targets: [
-        { provider: "deepseek", model: "deepseek-flash", thinkingLevel: "low" },
-        { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", thinkingLevel: "low" },
+        { provider: "openai-codex", model: "gpt-6-luna", thinkingLevel: "xhigh" },
+        { provider: "openai", model: "gpt-6-luna", thinkingLevel: "xhigh" },
+        { provider: "openrouter", model: "openai/gpt-6-luna", thinkingLevel: "xhigh" },
       ],
     },
     {
@@ -42,8 +43,9 @@ export const DEFAULT_CONFIG: RouterConfig = {
         "Substantial but bounded coding, multi-step implementation, and ordinary refactors or debugging that need " +
         "sustained reasoning over familiar patterns.",
       targets: [
-        { provider: "deepseek", model: "deepseek-flash", thinkingLevel: "high" },
-        { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", thinkingLevel: "high" },
+        { provider: "openai-codex", model: "gpt-6-sol", thinkingLevel: "high" },
+        { provider: "openai", model: "gpt-6-sol", thinkingLevel: "high" },
+        { provider: "openrouter", model: "openai/gpt-6-sol", thinkingLevel: "high" },
       ],
     },
     {

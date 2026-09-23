@@ -6,7 +6,7 @@ It is intentionally narrow: Jev judges whether each configured capability profil
 
 ## Current status
 
-Experimental and paused. Routing quality has not been validated against a fixed-model baseline; the implementation and tests are retained, but further development and calibration are on hold.
+Experimental; development resumed 2026-09-23 after a pause. The profile-based router is implemented and tested, but routing quality has not yet been validated against a fixed-model baseline — calibration is the next step, and automatic switching should not be trusted until it passes.
 
 The default mode is **observe**, which records recommendations without switching models. Observe mode still sends request context to Jev and adds classification latency. Leave the extension uninstalled or use `/router off` when not evaluating it.
 
@@ -16,13 +16,13 @@ The default profiles are:
 
 | Profile | Default target | Scope |
 | --- | --- | --- |
-| `routine` | DeepSeek V4.1 Flash, low thinking | Direct questions, routine edits, small/local implementation, straightforward debugging |
-| `substantial` | DeepSeek V4.1 Flash, high thinking | Substantial but bounded coding, multi-step implementation, ordinary refactors/debugging |
+| `routine` | GPT-6 Luna, xhigh thinking | Direct questions, routine edits, small/local implementation, straightforward debugging |
+| `substantial` | GPT-6 Sol, high thinking | Substantial but bounded coding, multi-step implementation, ordinary refactors/debugging |
 | `strategic` | GPT-6 Astra, high thinking | Architecture/system design, subtle cross-cutting debugging, novel or ambiguous problems, consequential tradeoffs |
 
 ## Requirements
 
-- Pi 0.86.0 or newer (tested against 0.86.1 and 0.87.0)
+- Pi 0.86.0 or newer (tested against 0.86.1 and 0.87.1)
 - Node.js 22.19+
 - OpenRouter configured in Pi, or `OPENROUTER_API_KEY`, with access to `typesafe/jev-1.13`
 
@@ -81,15 +81,18 @@ Example:
       "id": "routine",
       "description": "Direct questions, routine edits, small or local implementation, and straightforward debugging.",
       "targets": [
-        { "provider": "deepseek", "model": "deepseek-flash", "thinkingLevel": "low" },
-        { "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash", "thinkingLevel": "low" }
+        { "provider": "openai-codex", "model": "gpt-6-luna", "thinkingLevel": "xhigh" },
+        { "provider": "openai", "model": "gpt-6-luna", "thinkingLevel": "xhigh" },
+        { "provider": "openrouter", "model": "openai/gpt-6-luna", "thinkingLevel": "xhigh" }
       ]
     },
     {
       "id": "substantial",
       "description": "Substantial but bounded coding, multi-step implementation, and ordinary refactors or debugging needing sustained reasoning.",
       "targets": [
-        { "provider": "deepseek", "model": "deepseek-flash", "thinkingLevel": "high" }
+        { "provider": "openai-codex", "model": "gpt-6-sol", "thinkingLevel": "high" },
+        { "provider": "openai", "model": "gpt-6-sol", "thinkingLevel": "high" },
+        { "provider": "openrouter", "model": "openai/gpt-6-sol", "thinkingLevel": "high" }
       ]
     },
     {
