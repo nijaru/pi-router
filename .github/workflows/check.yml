@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         # peerDependencies allow >=0.86.0; verify the baseline and the current release.
-        pi: ["0.86.1", "0.87.0"]
+        pi: ["0.86.1", "0.87.1"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
